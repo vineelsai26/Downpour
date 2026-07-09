@@ -12,6 +12,10 @@ let package = Package(
         .executable(name: "downpour", targets: ["downpour-cli"]),
         .executable(name: "backup-selftest", targets: ["backup-selftest"]),
     ],
+    dependencies: [
+        // Shared design system for the vstack macOS apps.
+        .package(path: "../vkit"),
+    ],
     targets: [
         .target(
             name: "BackupCore",
@@ -19,7 +23,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "DownpourApp",
-            dependencies: ["BackupCore"],
+            dependencies: [
+                "BackupCore",
+                .product(name: "VKit", package: "vkit"),
+            ],
             path: "Sources/DownpourApp"
         ),
         .executableTarget(

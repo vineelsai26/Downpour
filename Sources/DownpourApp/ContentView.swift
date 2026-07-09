@@ -1,6 +1,7 @@
 import SwiftUI
 import Photos
 import BackupCore
+import VKit
 
 struct ContentView: View {
     var body: some View {
@@ -16,7 +17,7 @@ struct BackupBody: View {
     @EnvironmentObject var controller: BackupController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Theme.sectionSpacing) {
             header
             PermissionsSection()
             DestinationSection()
@@ -34,20 +35,15 @@ struct BackupBody: View {
                 LogSection()
             }
         }
-        .padding(24)
+        .padding(Theme.pagePadding)
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "externaldrive.badge.icloud")
-                .font(.system(size: 34))
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Downpour").font(.title2.bold())
-                Text("Back up iCloud Drive & Photos to an external disk")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            }
-            Spacer()
+        AppHeader(
+            title: "Downpour",
+            subtitle: "Back up iCloud Drive & Photos to an external disk",
+            systemImage: "externaldrive.badge.icloud"
+        ) {
             if controller.hasDestination {
                 Button { controller.revealInFinder() } label: {
                     Image(systemName: "folder")
@@ -221,31 +217,20 @@ private struct OptionsSection: View {
             }
             Stepper(value: $controller.maxConcurrency, in: 1...12) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Parallel transfers")
-                        Text("Download & copy this many files at once.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    OptionLabel("Parallel transfers", subtitle: "Download & copy this many files at once.")
                     Spacer()
                     Text("\(controller.maxConcurrency)").foregroundStyle(.secondary).monospacedDigit()
                 }
             }
             Toggle(isOn: $controller.verify) {
-                optionLabel("Verify copies (slower)", "Re-hash each copied file to confirm it wrote correctly.")
+                OptionLabel("Verify copies (slower)", subtitle: "Re-hash each copied file to confirm it wrote correctly.")
             }
             Toggle(isOn: $controller.notifyOnCompletion) {
-                optionLabel("Notify when finished", "Show a notification after each backup.")
+                OptionLabel("Notify when finished", subtitle: "Show a notification after each backup.")
             }
             Toggle(isOn: $controller.ejectAfterBackup) {
-                optionLabel("Eject disk after backup", "Safely unmount the backup disk when a run succeeds.")
+                OptionLabel("Eject disk after backup", subtitle: "Safely unmount the backup disk when a run succeeds.")
             }
-        }
-    }
-
-    private func optionLabel(_ title: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title)
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -258,11 +243,10 @@ private struct ScheduleSection: View {
     var body: some View {
         Card(title: "Automatic backups", systemImage: "calendar.badge.clock") {
             Toggle(isOn: $controller.scheduleEnabled) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Run backups on a schedule")
-                    Text(controller.scheduleEnabled ? controller.scheduleSummary : "Off — back up manually")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                OptionLabel(
+                    "Run backups on a schedule",
+                    subtitle: controller.scheduleEnabled ? controller.scheduleSummary : "Off — back up manually"
+                )
             }
             if controller.scheduleEnabled {
                 Picker("Frequency", selection: $controller.scheduleFrequency) {
@@ -323,12 +307,12 @@ private struct ProgressSection: View {
 
             // Stat row.
             HStack(spacing: 0) {
-                stat("Copied", "\(controller.totalCopied)")
-                stat("Reused", "\(controller.totalReused)")
-                stat("Size", ByteFormat.string(controller.totalBytes))
+                StatCell("Copied", "\(controller.totalCopied)")
+                StatCell("Reused", "\(controller.totalReused)")
+                StatCell("Size", ByteFormat.string(controller.totalBytes))
                 if controller.isRunning {
-                    stat("Speed", controller.throughput > 0 ? Format.rate(controller.throughput) : "—")
-                    stat("ETA", controller.etaSeconds.map(Format.duration) ?? "—")
+                    StatCell("Speed", controller.throughput > 0 ? Format.rate(controller.throughput) : "—")
+                    StatCell("ETA", controller.etaSeconds.map(Format.duration) ?? "—")
                 }
             }
 
@@ -353,14 +337,6 @@ private struct ProgressSection: View {
                 .padding(.top, 2)
             }
         }
-    }
-
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.headline).monospacedDigit()
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private func detail(for p: SourceProgress) -> String {
@@ -440,38 +416,3 @@ private struct LogSection: View {
     }
 }
 
-// MARK: - Card container
-
-private struct Card<Content: View>: View {
-    let title: String
-    let systemImage: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-            content
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-// MARK: - Formatting
-
-enum Format {
-    static func duration(_ t: TimeInterval) -> String {
-        guard t.isFinite, t >= 0 else { return "—" }
-        let s = Int(t)
-        if s < 60 { return "\(s)s" }
-        if s < 3600 { return "\(s / 60)m \(s % 60)s" }
-        return "\(s / 3600)h \(String(format: "%02d", (s % 3600) / 60))m"
-    }
-
-    static func rate(_ bytesPerSecond: Double) -> String {
-        guard bytesPerSecond.isFinite, bytesPerSecond > 0 else { return "—" }
-        return ByteFormat.string(Int64(bytesPerSecond)) + "/s"
-    }
-}
