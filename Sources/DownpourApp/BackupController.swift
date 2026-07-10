@@ -266,7 +266,9 @@ final class BackupController: ObservableObject {
     }
 
     func ejectDestination() {
-        guard let fs = filesystemInfo, fs.volumeURL.path != "/" else { return }
+        guard let fs = filesystemInfo,
+              fs.volumeURL.path != "/",
+              fs.volumeURL.standardizedFileURL.path.hasPrefix("/Volumes/") else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
         process.arguments = ["eject", fs.volumeURL.path]
@@ -340,8 +342,8 @@ final class BackupController: ObservableObject {
     }
 
     private func notify(title: String, body: String) {
-        let t = title.replacingOccurrences(of: "\"", with: "'")
-        let b = body.replacingOccurrences(of: "\"", with: "'")
+        let t = title.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let b = body.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "display notification \"\(b)\" with title \"\(t)\""]

@@ -30,6 +30,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+is_integer() { [[ "$1" =~ ^[0-9]+$ ]]; }
+if [[ -n "$INTERVAL" ]] && (! is_integer "$INTERVAL" || (( INTERVAL < 60 ))); then
+  echo "error: --interval must be an integer of at least 60 seconds" >&2; exit 2
+fi
+if [[ -z "$INTERVAL" ]] && (! is_integer "$HOUR" || ! is_integer "$MINUTE" || (( HOUR > 23 || MINUTE > 59 ))); then
+  echo "error: --hour must be 0-23 and --minute must be 0-59" >&2; exit 2
+fi
+
 if [[ -z "$APP" ]]; then
   if [[ -d "/Applications/Downpour.app" ]]; then
     APP="/Applications/Downpour.app"
@@ -45,6 +53,9 @@ BIN="$APP/Contents/MacOS/DownpourApp"
 if [[ ! -x "$BIN" ]]; then
   echo "error: executable not found at $BIN" >&2
   exit 1
+fi
+if [[ "$BIN" == *'&'* || "$BIN" == *'<'* || "$BIN" == *'>'* ]]; then
+  echo "error: app path contains characters unsupported by the launchd plist" >&2; exit 2
 fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"

@@ -22,6 +22,8 @@ public final class BackupEngine: @unchecked Sendable {
         guard let filesystem = FilesystemInfo.inspect(config.destinationRoot) else {
             throw BackupError.destinationUnavailable(config.destinationRoot)
         }
+        let runLock = try BackupRunLock(destinationRoot: config.destinationRoot)
+        defer { _ = runLock }
 
         if !filesystem.supportsHardlinks {
             reporter.report(.warning(
@@ -87,8 +89,8 @@ public final class BackupEngine: @unchecked Sendable {
         try? FileManager.default.createDirectory(at: runsDir, withIntermediateDirectories: true)
         let stamp = SnapshotStore.timestampFormatter.string(from: summary.startedAt)
         if let data = try? JSONEncoder.backup.encode(summary) {
-            try? data.write(to: runsDir.appendingPathComponent("\(stamp).json"))
-            try? data.write(to: destinationRoot.appendingPathComponent("last-run.json"))
+            try? data.write(to: runsDir.appendingPathComponent("\(stamp).json"), options: .atomic)
+            try? data.write(to: destinationRoot.appendingPathComponent("last-run.json"), options: .atomic)
         }
     }
 

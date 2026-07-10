@@ -94,6 +94,16 @@ public final class SnapshotStore {
         }
     }
 
+    /// Discard a failed or cancelled hardlink session. Mirror sessions mutate
+    /// their existing current directory and therefore cannot be safely removed.
+    public func discard(session: SnapshotSession) {
+        guard strategy == .hardlink else { return }
+        let target = session.targetDir.standardizedFileURL
+        let root = snapshotsDir.standardizedFileURL.path + "/"
+        guard target.path.hasPrefix(root) else { return }
+        try? fm.removeItem(at: target)
+    }
+
     /// Mirror mode: delete files in `current/` no longer present in the source.
     private func pruneDeleted(in session: SnapshotSession) throws {
         guard let enumerator = fm.enumerator(at: session.targetDir, includingPropertiesForKeys: [.isRegularFileKey]) else { return }
@@ -110,6 +120,7 @@ public final class SnapshotStore {
     }
 
     private func prune(keeping count: Int) throws {
+        guard count > 0 else { return }
         let dirs = ((try? fm.contentsOfDirectory(atPath: snapshotsDir.path)) ?? []).sorted()
         guard dirs.count > count else { return }
         for name in dirs.prefix(dirs.count - count) {

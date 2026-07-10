@@ -89,13 +89,20 @@ enum HeadlessBackup {
     /// Post a user notification via osascript (works from a headless bundle
     /// without UNUserNotificationCenter setup).
     private static func notify(title: String, body: String) {
-        let escapedTitle = title.replacingOccurrences(of: "\"", with: "'")
-        let escapedBody = body.replacingOccurrences(of: "\"", with: "'")
+        let escapedTitle = appleScriptString(title)
+        let escapedBody = appleScriptString(body)
         let script = "display notification \"\(escapedBody)\" with title \"\(escapedTitle)\""
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
         try? process.run()
         process.waitUntilExit()
+    }
+
+    private static func appleScriptString(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
     }
 }

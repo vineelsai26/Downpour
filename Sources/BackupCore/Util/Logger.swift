@@ -22,23 +22,24 @@ public final class BackupLogger: @unchecked Sendable {
             if !FileManager.default.fileExists(atPath: url.path) {
                 FileManager.default.createFile(atPath: url.path, contents: nil)
             }
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             fileHandle = try? FileHandle(forWritingTo: url)
             _ = try? fileHandle?.seekToEnd()
         }
     }
 
     public func info(_ message: String) {
-        osLog.info("\(message, privacy: .public)")
+        osLog.info("\(message, privacy: .private)")
         write("INFO", message)
     }
 
     public func warn(_ message: String) {
-        osLog.warning("\(message, privacy: .public)")
+        osLog.warning("\(message, privacy: .private)")
         write("WARN", message)
     }
 
     public func error(_ message: String) {
-        osLog.error("\(message, privacy: .public)")
+        osLog.error("\(message, privacy: .private)")
         write("ERROR", message)
     }
 

@@ -42,9 +42,8 @@ public final class SnapshotSession: @unchecked Sendable {
         previousEntry: ManifestEntry?,
         verify: Bool
     ) throws -> PlaceResult {
-        let dest = targetDir.appendingPathComponent(relativePath)
+        let dest = try destination(for: relativePath)
         try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-        markPlaced(relativePath)
 
         let unchanged = previousEntry?.matchesQuickSignature(size: size, modified: modified) ?? false
 
@@ -56,19 +55,24 @@ public final class SnapshotSession: @unchecked Sendable {
                     try? fm.removeItem(at: dest)
                     do {
                         try fm.linkItem(at: prevFile, to: dest)
+                        markPlaced(relativePath)
                         return PlaceResult(copied: false, bytes: size, sha256: previousEntry?.sha256)
                     } catch {
                         // Fall through to a fresh copy on link failure.
                     }
                 }
             }
-            return try copyFresh(from: sourceURL, to: dest, size: size, verify: verify)
+            let result = try copyFresh(from: sourceURL, to: dest, size: size, verify: verify)
+            markPlaced(relativePath)
+            return result
 
         case .mirror:
             if unchanged, fm.fileExists(atPath: dest.path) {
                 return PlaceResult(copied: false, bytes: size, sha256: previousEntry?.sha256)
             }
-            return try copyFresh(from: sourceURL, to: dest, size: size, verify: verify)
+            let result = try copyFresh(from: sourceURL, to: dest, size: size, verify: verify)
+            markPlaced(relativePath)
+            return result
         }
     }
 
@@ -77,13 +81,13 @@ public final class SnapshotSession: @unchecked Sendable {
     /// `PlaceResult` on success, or nil if there's nothing to reuse (caller must
     /// then produce the bytes fresh). Used by the Photos path, where fetching a
     /// resource means downloading it from iCloud.
-    public func reuseFromPrevious(relativePath: String) -> PlaceResult? {
+    public func reuseFromPrevious(relativePath: String) throws -> PlaceResult? {
         switch store.strategy {
         case .hardlink:
             guard let prevDir = previousDir else { return nil }
             let prevFile = prevDir.appendingPathComponent(relativePath)
             guard fm.fileExists(atPath: prevFile.path) else { return nil }
-            let dest = targetDir.appendingPathComponent(relativePath)
+            let dest = try destination(for: relativePath)
             do {
                 try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? fm.removeItem(at: dest)
@@ -96,7 +100,7 @@ public final class SnapshotSession: @unchecked Sendable {
             return PlaceResult(copied: false, bytes: size, sha256: nil)
 
         case .mirror:
-            let dest = targetDir.appendingPathComponent(relativePath)
+            let dest = try destination(for: relativePath)
             guard fm.fileExists(atPath: dest.path) else { return nil }
             markPlaced(relativePath)
             let size = (try? dest.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
@@ -107,33 +111,56 @@ public final class SnapshotSession: @unchecked Sendable {
     /// Place a file we just produced in a temp location (e.g. a PhotoKit export)
     /// by moving it into the snapshot. Always counts as a copy.
     public func placeProducedFile(relativePath: String, tempURL: URL, verify: Bool) throws -> PlaceResult {
-        let dest = targetDir.appendingPathComponent(relativePath)
+        let dest = try destination(for: relativePath)
         try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staged = dest.deletingLastPathComponent().appendingPathComponent(".downpour-\(UUID().uuidString).tmp")
+        try fm.moveItem(at: tempURL, to: staged)
+        try replace(staged: staged, destination: dest)
         markPlaced(relativePath)
-        try? fm.removeItem(at: dest)
-        try fm.moveItem(at: tempURL, to: dest)
         let size = (try? dest.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
         let hash = verify ? FileHash.sha256(of: dest) : nil
         return PlaceResult(copied: true, bytes: size, sha256: hash)
     }
 
     private func copyFresh(from sourceURL: URL, to dest: URL, size: Int64, verify: Bool) throws -> PlaceResult {
-        try? fm.removeItem(at: dest)
-        try fm.copyItem(at: sourceURL, to: dest)
+        let staged = dest.deletingLastPathComponent().appendingPathComponent(".downpour-\(UUID().uuidString).tmp")
+        defer { try? fm.removeItem(at: staged) }
+        try fm.copyItem(at: sourceURL, to: staged)
         var hash: String? = nil
         if verify {
-            hash = FileHash.sha256(of: dest)
-            if let srcHash = FileHash.sha256(of: sourceURL), srcHash != hash {
+            hash = FileHash.sha256(of: staged)
+            guard let srcHash = FileHash.sha256(of: sourceURL), let hash, srcHash == hash else {
                 throw BackupError.underlying("Verification failed for \(dest.lastPathComponent)")
             }
         }
+        try replace(staged: staged, destination: dest)
         return PlaceResult(copied: true, bytes: size, sha256: hash)
+    }
+
+    private func destination(for relativePath: String) throws -> URL {
+        guard !relativePath.hasPrefix("/"),
+              !relativePath.split(separator: "/").contains("..") else {
+            throw BackupError.underlying("Unsafe backup relative path")
+        }
+        let dest = targetDir.appendingPathComponent(relativePath).standardizedFileURL
+        guard dest.path.hasPrefix(targetDir.standardizedFileURL.path + "/") else {
+            throw BackupError.underlying("Backup path escaped snapshot root")
+        }
+        return dest
+    }
+
+    private func replace(staged: URL, destination: URL) throws {
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: staged)
+        } else {
+            try fm.moveItem(at: staged, to: destination)
+        }
     }
 
     static func relativePath(of url: URL, under root: URL) -> String {
         let full = url.standardizedFileURL.path
         let base = root.standardizedFileURL.path + "/"
         if full.hasPrefix(base) { return String(full.dropFirst(base.count)) }
-        return url.lastPathComponent
+        return ""
     }
 }

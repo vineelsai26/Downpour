@@ -66,7 +66,8 @@ public struct ICloudDriveBackup: SourceBackup {
         var items: [DriveItem] = []
         var visitedDirs = Set<String>()
         var seenFiles = Set<String>()
-        visitedDirs.insert(sourceRoot.resolvingSymlinksInPath().standardizedFileURL.path)
+        let allowedRoot = sourceRoot.resolvingSymlinksInPath().standardizedFileURL.path
+        visitedDirs.insert(allowedRoot)
 
         guard let containers = try? fm.contentsOfDirectory(
             at: sourceRoot, includingPropertiesForKeys: [.isDirectoryKey]
@@ -79,13 +80,13 @@ public struct ICloudDriveBackup: SourceBackup {
             guard (try? container.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
 
             if name == cloudDocsContainer {
-                walk(dir: container, prefix: "",
+                walk(dir: container, prefix: "", allowedRoot: allowedRoot,
                      items: &items, visitedDirs: &visitedDirs, seenFiles: &seenFiles)
             } else {
                 let docs = container.appendingPathComponent("Documents", isDirectory: true)
                 var isDir: ObjCBool = false
                 guard fm.fileExists(atPath: docs.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                walk(dir: docs, prefix: displayName(forContainer: name),
+                walk(dir: docs, prefix: displayName(forContainer: name), allowedRoot: allowedRoot,
                      items: &items, visitedDirs: &visitedDirs, seenFiles: &seenFiles)
             }
         }
@@ -102,7 +103,7 @@ public struct ICloudDriveBackup: SourceBackup {
     }
 
     private func walk(
-        dir: URL, prefix: String,
+        dir: URL, prefix: String, allowedRoot: String,
         items: inout [DriveItem], visitedDirs: inout Set<String>, seenFiles: inout Set<String>
     ) {
         let fm = FileManager.default
@@ -117,18 +118,21 @@ public struct ICloudDriveBackup: SourceBackup {
             let vals = try? entry.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
             if vals?.isSymbolicLink == true {
                 let resolved = entry.resolvingSymlinksInPath()
+                guard resolved.standardizedFileURL.path == allowedRoot || resolved.standardizedFileURL.path.hasPrefix(allowedRoot + "/") else {
+                    continue
+                }
                 let resolvedIsDir = (try? resolved.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 if resolvedIsDir {
                     let key = resolved.standardizedFileURL.path
                     if visitedDirs.insert(key).inserted {
-                        walk(dir: resolved, prefix: childPrefix(prefix, name),
+                        walk(dir: resolved, prefix: childPrefix(prefix, name), allowedRoot: allowedRoot,
                              items: &items, visitedDirs: &visitedDirs, seenFiles: &seenFiles)
                     }
                 } else if fm.fileExists(atPath: resolved.path) {
                     addFile(realURL: resolved, name: name, prefix: prefix, items: &items, seenFiles: &seenFiles)
                 }
             } else if vals?.isDirectory == true {
-                walk(dir: entry, prefix: childPrefix(prefix, name),
+                walk(dir: entry, prefix: childPrefix(prefix, name), allowedRoot: allowedRoot,
                      items: &items, visitedDirs: &visitedDirs, seenFiles: &seenFiles)
             } else {
                 let realURL = downloader.realItemURL(for: entry)
@@ -166,6 +170,8 @@ public struct ICloudDriveBackup: SourceBackup {
 
         let store = SnapshotStore(sourceRoot: destRoot, supportsHardlinks: context.filesystem.supportsHardlinks)
         let session = try store.beginSession(timestamp: context.timestamp)
+        var finalized = false
+        defer { if !finalized { store.discard(session: session) } }
 
         reporter.report(.phaseChanged(source: .drive, phase: "Scanning iCloud Drive"))
         let items = collectItems(under: sourceRoot)
@@ -210,8 +216,9 @@ public struct ICloudDriveBackup: SourceBackup {
 
         if Task.isCancelled { throw BackupError.cancelled }
 
-        try store.finalize(session: session, retention: context.config.snapshotRetention)
         try newManifest.save(to: context.config.destinationRoot)
+        try store.finalize(session: session, retention: context.config.snapshotRetention)
+        finalized = true
 
         reporter.report(.sourceFinished(summary))
         return summary

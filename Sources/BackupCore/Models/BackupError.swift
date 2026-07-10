@@ -7,6 +7,7 @@ public enum BackupError: LocalizedError {
     case photosAuthorizationDenied
     case downloadTimedOut(URL)
     case insufficientSpace(needed: Int64, available: Int64)
+    case backupAlreadyRunning(URL)
     case cancelled
     case underlying(String)
 
@@ -24,6 +25,8 @@ public enum BackupError: LocalizedError {
             return "Timed out downloading from iCloud: \(url.path)."
         case .insufficientSpace(let needed, let available):
             return "Not enough free space. Needs ~\(ByteFormat.string(needed)), only \(ByteFormat.string(available)) available."
+        case .backupAlreadyRunning(let url):
+            return "A backup is already running for \(url.path)."
         case .cancelled:
             return "Backup was cancelled."
         case .underlying(let message):

@@ -46,6 +46,8 @@ public struct PhotosBackup: SourceBackup {
 
         let store = SnapshotStore(sourceRoot: destRoot, supportsHardlinks: context.filesystem.supportsHardlinks)
         let session = try store.beginSession(timestamp: context.timestamp)
+        var finalized = false
+        defer { if !finalized { store.discard(session: session) } }
 
         reporter.report(.phaseChanged(source: .photos, phase: "Scanning Photos library"))
         let assets = exporter.fetchAllAssets(
@@ -100,8 +102,9 @@ public struct PhotosBackup: SourceBackup {
 
         if Task.isCancelled { throw BackupError.cancelled }
 
-        try store.finalize(session: session, retention: context.config.snapshotRetention)
         try newManifest.save(to: context.config.destinationRoot)
+        try store.finalize(session: session, retention: context.config.snapshotRetention)
+        finalized = true
 
         reporter.report(.sourceFinished(summary))
         return summary
@@ -121,7 +124,7 @@ public struct PhotosBackup: SourceBackup {
                 // Reuse unchanged resources without re-downloading from iCloud.
                 if let prev = previous[rel],
                    abs(prev.modified - modified) < 1.0,
-                   let reused = session.reuseFromPrevious(relativePath: rel) {
+                   let reused = try session.reuseFromPrevious(relativePath: rel) {
                     results.append(ResourceResult(
                         rel: rel,
                         entry: ManifestEntry(relativePath: rel, size: reused.bytes, modified: modified, sha256: prev.sha256, snapshotName: snapshotName),

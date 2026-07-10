@@ -32,7 +32,9 @@ func parseArgs(_ args: [String]) -> CLIOptions {
             opts.sources.insert(.photos)
         case "--retention":
             i += 1
-            if i < args.count { opts.retention = Int(args[i]) }
+            if i < args.count, let value = Int(args[i]) {
+                opts.retention = value > 0 ? value : nil
+            }
         case "--verify":
             opts.verify = true
         case "--help", "-h":

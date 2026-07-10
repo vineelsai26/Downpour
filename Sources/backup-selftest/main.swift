@@ -152,6 +152,33 @@ t.run("retention prunes old snapshots") {
     t.check(snaps.count == 3, "retention kept only 3 snapshots (got \(snaps.count))")
 }
 
+t.run("non-positive retention never deletes snapshots") {
+    let tmp = try makeTempDir(); defer { try? fm.removeItem(at: tmp) }
+    let src = tmp.appendingPathComponent("src", isDirectory: true)
+    let dst = tmp.appendingPathComponent("dst", isDirectory: true)
+    let meta = try writeFile("f.txt", "x", in: src)
+    let store = SnapshotStore(sourceRoot: dst, supportsHardlinks: true)
+    for i in 0..<2 {
+        let s = try store.beginSession(timestamp: Date(timeIntervalSince1970: TimeInterval(2000 + i)))
+        _ = try s.placeFile(relativePath: "f.txt", sourceURL: src.appendingPathComponent("f.txt"), size: meta.size, modified: meta.modified, previousEntry: nil, verify: false)
+        try store.finalize(session: s, retention: 0)
+    }
+    let snaps = (try? fm.contentsOfDirectory(atPath: dst.appendingPathComponent("snapshots").path)) ?? []
+    t.check(snaps.count == 2, "non-positive retention must preserve snapshots")
+}
+
+t.run("snapshot paths cannot escape the target directory") {
+    let tmp = try makeTempDir(); defer { try? fm.removeItem(at: tmp) }
+    let src = tmp.appendingPathComponent("src", isDirectory: true)
+    let dst = tmp.appendingPathComponent("dst", isDirectory: true)
+    let meta = try writeFile("f.txt", "x", in: src)
+    let store = SnapshotStore(sourceRoot: dst, supportsHardlinks: true)
+    let session = try store.beginSession(timestamp: Date())
+    var rejected = false
+    do { _ = try session.placeFile(relativePath: "../escape.txt", sourceURL: src.appendingPathComponent("f.txt"), size: meta.size, modified: meta.modified, previousEntry: nil, verify: false) } catch { rejected = true }
+    t.check(rejected, "path traversal must be rejected")
+}
+
 t.run("downloader resolves .icloud placeholder names") {
     let dl = ICloudDownloader()
     let placeholder = URL(fileURLWithPath: "/x/y/.Report.pdf.icloud")
