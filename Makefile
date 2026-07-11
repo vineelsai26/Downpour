@@ -42,6 +42,7 @@ bundle: build
 	@mkdir -p "$(MACOS)" "$(RESOURCES)"
 	@cp "$(BUILD_DIR)/$(EXEC)" "$(MACOS)/$(EXEC)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
+	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(RESOURCES)/AppIcon.icns"; fi
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@echo "Assembled $(APP)"
 
