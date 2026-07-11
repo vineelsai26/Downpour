@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import BackupCore
+import VKit
 
 /// Off-screen renderer for verification: renders `ContentView` to a PNG without
 /// opening a window. Invoked via `--render-ui <out.png> [sampleDestPath]`.
@@ -26,7 +27,7 @@ enum RenderHarness {
             .environmentObject(controller)
             .frame(width: 640)
             .fixedSize(horizontal: false, vertical: true)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(Palette.background)
 
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2

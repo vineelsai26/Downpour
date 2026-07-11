@@ -8,6 +8,8 @@ struct ContentView: View {
         ScrollView {
             BackupBody()
         }
+        .background(Palette.background)
+        .tint(Palette.accent)
     }
 }
 
