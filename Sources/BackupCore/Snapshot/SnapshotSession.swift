@@ -45,13 +45,25 @@ public final class SnapshotSession: @unchecked Sendable {
         let dest = try destination(for: relativePath)
         try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-        let unchanged = previousEntry?.matchesQuickSignature(size: size, modified: modified) ?? false
+        var unchanged = previousEntry?.matchesQuickSignature(size: size, modified: modified) ?? false
+        if unchanged && verify {
+            if let expected = previousEntry?.sha256,
+               let sourceHash = FileHash.sha256(of: sourceURL),
+               sourceHash == expected {
+                // The source still matches the content recorded in the manifest.
+            } else {
+                unchanged = false
+            }
+        }
 
         switch store.strategy {
         case .hardlink:
             if unchanged, let prevDir = previousDir {
                 let prevFile = prevDir.appendingPathComponent(relativePath)
-                if fm.fileExists(atPath: prevFile.path) {
+                let previousMatches = !verify || (
+                    previousEntry?.sha256 != nil && FileHash.sha256(of: prevFile) == previousEntry?.sha256
+                )
+                if fm.fileExists(atPath: prevFile.path), previousMatches {
                     try? fm.removeItem(at: dest)
                     do {
                         try fm.linkItem(at: prevFile, to: dest)
@@ -67,8 +79,16 @@ public final class SnapshotSession: @unchecked Sendable {
             return result
 
         case .mirror:
-            if unchanged, fm.fileExists(atPath: dest.path) {
-                return PlaceResult(copied: false, bytes: size, sha256: previousEntry?.sha256)
+            if unchanged, let prevDir = previousDir {
+                let prevFile = prevDir.appendingPathComponent(relativePath)
+                let previousMatches = !verify || (
+                    previousEntry?.sha256 != nil && FileHash.sha256(of: prevFile) == previousEntry?.sha256
+                )
+                if fm.fileExists(atPath: prevFile.path), previousMatches {
+                    try fm.copyItem(at: prevFile, to: dest)
+                    markPlaced(relativePath)
+                    return PlaceResult(copied: false, bytes: size, sha256: previousEntry?.sha256)
+                }
             }
             let result = try copyFresh(from: sourceURL, to: dest, size: size, verify: verify)
             markPlaced(relativePath)
@@ -100,8 +120,12 @@ public final class SnapshotSession: @unchecked Sendable {
             return PlaceResult(copied: false, bytes: size, sha256: nil)
 
         case .mirror:
+            guard let prevDir = previousDir else { return nil }
+            let prevFile = prevDir.appendingPathComponent(relativePath)
+            guard fm.fileExists(atPath: prevFile.path) else { return nil }
             let dest = try destination(for: relativePath)
-            guard fm.fileExists(atPath: dest.path) else { return nil }
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: prevFile, to: dest)
             markPlaced(relativePath)
             let size = (try? dest.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
             return PlaceResult(copied: false, bytes: size, sha256: nil)

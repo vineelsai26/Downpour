@@ -58,7 +58,7 @@ public final class SnapshotStore {
         let name: String
         switch strategy {
         case .mirror:
-            target = currentDir
+            target = sourceRoot.appendingPathComponent(".current-in-progress-\(UUID().uuidString)", isDirectory: true)
             name = "current"
             try fm.createDirectory(at: target, withIntermediateDirectories: true)
         case .hardlink:
@@ -83,6 +83,11 @@ public final class SnapshotStore {
         switch strategy {
         case .mirror:
             try pruneDeleted(in: session)
+            if fm.fileExists(atPath: currentDir.path) {
+                _ = try fm.replaceItemAt(currentDir, withItemAt: session.targetDir)
+            } else {
+                try fm.moveItem(at: session.targetDir, to: currentDir)
+            }
         case .hardlink:
             // Point `latest` at the new snapshot.
             try? fm.removeItem(at: latestLink)
@@ -94,13 +99,11 @@ public final class SnapshotStore {
         }
     }
 
-    /// Discard a failed or cancelled hardlink session. Mirror sessions mutate
-    /// their existing current directory and therefore cannot be safely removed.
+    /// Discard a failed or cancelled unpublished session.
     public func discard(session: SnapshotSession) {
-        guard strategy == .hardlink else { return }
         let target = session.targetDir.standardizedFileURL
-        let root = snapshotsDir.standardizedFileURL.path + "/"
-        guard target.path.hasPrefix(root) else { return }
+        let root = sourceRoot.standardizedFileURL.path + "/"
+        guard target.path.hasPrefix(root), target != currentDir.standardizedFileURL else { return }
         try? fm.removeItem(at: target)
     }
 

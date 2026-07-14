@@ -163,6 +163,11 @@ public struct ICloudDriveBackup: SourceBackup {
 
         let reporter = context.reporter
         let destRoot = context.config.destination(for: .drive)
+        let sourcePath = sourceRoot.resolvingSymlinksInPath().standardizedFileURL.path
+        let destinationPath = destRoot.resolvingSymlinksInPath().standardizedFileURL.path
+        if sourcePath == destinationPath || sourcePath.hasPrefix(destinationPath + "/") || destinationPath.hasPrefix(sourcePath + "/") {
+            throw BackupError.underlying("Backup source and destination must not contain one another")
+        }
         try fm.createDirectory(at: destRoot, withIntermediateDirectories: true)
 
         let previousManifest = Manifest.load(for: .drive, in: context.config.destinationRoot)
@@ -215,10 +220,15 @@ public struct ICloudDriveBackup: SourceBackup {
         )
 
         if Task.isCancelled { throw BackupError.cancelled }
+        if summary.warnings > 0 {
+            throw BackupError.underlying("Drive backup had \(summary.warnings) item failure(s); the previous snapshot was preserved")
+        }
 
-        try newManifest.save(to: context.config.destinationRoot)
         try store.finalize(session: session, retention: context.config.snapshotRetention)
         finalized = true
+        try newManifest.save(to: context.config.destinationRoot)
+        summary.snapshotPath = context.config.destination(for: .drive)
+            .appendingPathComponent(store.strategy == .mirror ? "current" : "snapshots/\(session.snapshotName)").path
 
         reporter.report(.sourceFinished(summary))
         return summary
